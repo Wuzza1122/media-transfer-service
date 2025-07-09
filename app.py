@@ -19,7 +19,7 @@ def upload_handler():
         # Extract values
         download_url = data["download_url"]
         file_name = data["file_name"]
-        file_size = int(data["file_size"])  # Ensure it's an integer
+        file_size = int(data["file_size"])
         token = data["frameio_token"]
         account_id = data["account_id"]
         folder_id = data["folder_id"]
@@ -42,7 +42,6 @@ def upload_handler():
         init_res.raise_for_status()
         upload_info = init_res.json()
 
-        # Debug log
         print("📦 Frame.io response:", upload_info)
 
         # Extract nested "data" object
@@ -60,14 +59,14 @@ def upload_handler():
         chunk_index = 0
 
         for part in upload_urls:
-    chunk_url = part["url"]
-    chunk_data = res.raw.read(chunk_size)
-    if not chunk_data:
-        break
-    put_res = requests.put(chunk_url, data=chunk_data)
-    put_res.raise_for_status()
-    print(f"✅ Uploaded chunk {chunk_index + 1}")
-    chunk_index += 1
+            chunk_url = part["url"]
+            chunk_data = res.raw.read(chunk_size)
+            if not chunk_data:
+                break
+            put_res = requests.put(chunk_url, data=chunk_data)
+            put_res.raise_for_status()
+            print(f"✅ Uploaded chunk {chunk_index + 1}")
+            chunk_index += 1
 
         return jsonify({
             "message": "✅ File uploaded successfully",
