@@ -41,9 +41,19 @@ def upload_handler():
         init_res = requests.post(init_url, json=init_payload, headers=init_headers)
         init_res.raise_for_status()
         upload_info = init_res.json()
-        upload_urls = upload_info["upload_urls"]
 
-        # Step 2: Download & upload in chunks
+        # Debug print to Render logs
+        print("📦 Frame.io response:", upload_info)
+
+        # Step 2: Verify upload URLs
+        upload_urls = upload_info.get("upload_urls")
+        if not upload_urls:
+            return jsonify({
+                "error": "❌ Frame.io did not return upload URLs",
+                "frameio_response": upload_info
+            }), 500
+
+        # Step 3: Download & upload in chunks
         chunk_size = 5 * 1024 * 1024  # 5MB
         res = requests.get(download_url, stream=True)
         chunk_index = 0
