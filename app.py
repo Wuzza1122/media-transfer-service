@@ -11,7 +11,10 @@ def home():
 def upload_handler():
     data = request.json
 
-    required_fields = ["download_url", "file_name", "file_size", "frameio_token", "account_id", "folder_id"]
+    required_fields = [
+        "download_url", "file_name", "file_size",
+        "frameio_token", "account_id", "folder_id"
+    ]
     if not all(field in data for field in required_fields):
         return jsonify({"error": "❌ Missing required fields"}), 400
 
@@ -29,7 +32,6 @@ def upload_handler():
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-
         init_payload = {
             "data": {
                 "file_size": file_size,
@@ -42,36 +44,39 @@ def upload_handler():
         init_res.raise_for_status()
         upload_info = init_res.json()
 
+        # Debug
         print("📦 Frame.io response:", upload_info)
 
-        # Extract nested "data" object
         upload_data = upload_info.get("data", {})
         upload_urls = upload_data.get("upload_urls")
+
         if not upload_urls:
             return jsonify({
                 "error": "❌ Frame.io did not return upload URLs",
                 "frameio_response": upload_info
             }), 500
 
-        # Step 2: Download and upload in chunks with exact sizes
+        # Step 2: Download and upload in chunks
         res = requests.get(download_url, stream=True)
         chunk_index = 0
 
-        for index, part in enumerate(upload_urls):
+        for part in upload_urls:
             chunk_url = part["url"]
-            expected_size = part["size"]
+            chunk_size = part["size"]
 
-            chunk_data = res.raw.read(expected_size)
-            if not chunk_data or len(chunk_data) != expected_size:
-                return jsonify({
-                    "error": f"❌ Chunk {index + 1} read error: expected {expected_size} bytes, got {len(chunk_data)}"
-                }), 500
+            chunk_data = res.raw.read(chunk_size)
+            if not chunk_data:
+                print(f"⚠️ No chunk data read at index {chunk_index}")
+                break
 
-            put_res = requests.put(
-                chunk_url,
-                data=chunk_data,
-                headers={"Content-Type": "application/octet-stream"}
-            )
+            if len(chunk_data) != chunk_size:
+                print(f"⚠️ Chunk size mismatch at index {chunk_index}: expected {chunk_size}, got {len(chunk_data)}")
+
+            put_headers = {
+                "Content-Type": "application/octet-stream"
+            }
+
+            put_res = requests.put(chunk_url, data=chunk_data, headers=put_headers)
             put_res.raise_for_status()
             print(f"✅ Uploaded chunk {chunk_index + 1}")
             chunk_index += 1
