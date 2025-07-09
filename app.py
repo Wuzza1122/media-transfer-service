@@ -63,7 +63,12 @@ def upload_handler():
             chunk_data = res.raw.read(chunk_size)
             if not chunk_data:
                 break
-            put_res = requests.put(chunk_url, data=chunk_data)
+
+            put_headers = {
+                "Content-Type": "application/octet-stream"
+            }
+
+            put_res = requests.put(chunk_url, data=chunk_data, headers=put_headers)
             put_res.raise_for_status()
             print(f"✅ Uploaded chunk {chunk_index + 1}")
             chunk_index += 1
