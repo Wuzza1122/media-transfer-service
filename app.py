@@ -59,14 +59,15 @@ def upload_handler():
         res = requests.get(download_url, stream=True)
         chunk_index = 0
 
-        for url in upload_urls:
-            chunk_data = res.raw.read(chunk_size)
-            if not chunk_data:
-                break
-            put_res = requests.put(url, data=chunk_data)
-            put_res.raise_for_status()
-            print(f"✅ Uploaded chunk {chunk_index + 1}")
-            chunk_index += 1
+        for part in upload_urls:
+    chunk_url = part["url"]
+    chunk_data = res.raw.read(chunk_size)
+    if not chunk_data:
+        break
+    put_res = requests.put(chunk_url, data=chunk_data)
+    put_res.raise_for_status()
+    print(f"✅ Uploaded chunk {chunk_index + 1}")
+    chunk_index += 1
 
         return jsonify({
             "message": "✅ File uploaded successfully",
