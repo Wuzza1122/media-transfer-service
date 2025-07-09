@@ -44,6 +44,7 @@ def upload_handler():
 
         print("📦 Frame.io response:", upload_info)
 
+        # Extract nested "data" object
         upload_data = upload_info.get("data", {})
         upload_urls = upload_data.get("upload_urls")
         if not upload_urls:
@@ -52,23 +53,28 @@ def upload_handler():
                 "frameio_response": upload_info
             }), 500
 
-        # Step 2: Stream and upload chunks
-        chunk_size = 5 * 1024 * 1024  # 5MB
+        # Step 2: Download and upload in chunks with exact sizes
+        res = requests.get(download_url, stream=True)
+        chunk_index = 0
 
-        with requests.get(download_url, stream=True) as res:
-            res.raise_for_status()
-            chunk_index = 0
+        for index, part in enumerate(upload_urls):
+            chunk_url = part["url"]
+            expected_size = part["size"]
 
-            for part in upload_urls:
-                chunk_url = part["url"]
-                chunk_data = res.raw.read(chunk_size)
-                if not chunk_data:
-                    break
+            chunk_data = res.raw.read(expected_size)
+            if not chunk_data or len(chunk_data) != expected_size:
+                return jsonify({
+                    "error": f"❌ Chunk {index + 1} read error: expected {expected_size} bytes, got {len(chunk_data)}"
+                }), 500
 
-                put_res = requests.put(chunk_url, data=chunk_data)
-                put_res.raise_for_status()
-                print(f"✅ Uploaded chunk {chunk_index + 1}")
-                chunk_index += 1
+            put_res = requests.put(
+                chunk_url,
+                data=chunk_data,
+                headers={"Content-Type": "application/octet-stream"}
+            )
+            put_res.raise_for_status()
+            print(f"✅ Uploaded chunk {chunk_index + 1}")
+            chunk_index += 1
 
         return jsonify({
             "message": "✅ File uploaded successfully",
