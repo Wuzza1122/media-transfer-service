@@ -19,7 +19,7 @@ def upload_handler():
         # Extract values
         download_url = data["download_url"]
         file_name = data["file_name"]
-        file_size = data["file_size"]
+        file_size = int(data["file_size"])  # Ensure it's an integer
         token = data["frameio_token"]
         account_id = data["account_id"]
         folder_id = data["folder_id"]
@@ -29,13 +29,16 @@ def upload_handler():
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
+
         init_payload = {
-            "file_size": file_size,
-            "name": file_name,
-            "type": "file"
+            "data": {
+                "file_size": file_size,
+                "name": file_name
+            }
         }
+
         init_url = f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/local_upload"
-        init_res = requests.post(init_url, json={"data": init_payload}, headers=init_headers)
+        init_res = requests.post(init_url, json=init_payload, headers=init_headers)
         init_res.raise_for_status()
         upload_info = init_res.json()
         upload_urls = upload_info["upload_urls"]
