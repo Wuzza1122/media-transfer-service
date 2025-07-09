@@ -64,11 +64,8 @@ def upload_handler():
             if not chunk_data:
                 break
 
-            put_headers = {
-                "Content-Type": "application/octet-stream"
-            }
-
-            put_res = requests.put(chunk_url, data=chunk_data, headers=put_headers)
+            # ✅ DO NOT pass headers – required for Frame.io S3 URLs
+            put_res = requests.put(chunk_url, data=chunk_data)
             put_res.raise_for_status()
             print(f"✅ Uploaded chunk {chunk_index + 1}")
             chunk_index += 1
