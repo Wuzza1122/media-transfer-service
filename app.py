@@ -7,62 +7,86 @@ app = Flask(__name__)
 @app.route("/upload", methods=["POST"])
 def upload_route():
     data = request.json
-    required_fields = ["download_url", "file_name", "file_size", "frameio_token", "account_id", "folder_id"]
-    if not all(field in data for field in required_fields):
+    required = ["file_name", "frameio_token", "account_id", "folder_id"]
+
+    # Shared required fields
+    if not all(field in data for field in required):
         return jsonify({"error": "❌ Missing required fields"}), 400
 
     try:
-        result = handle_upload(data)
-        return jsonify(result)
+        upload_type = data.get("upload_type", "local")  # default to local
+        if upload_type == "remote":
+            return jsonify(handle_remote_upload(data))
+        else:
+            if not all(x in data for x in ["download_url", "file_size"]):
+                return jsonify({"error": "❌ Missing download_url or file_size for local upload"}), 400
+            return jsonify(handle_local_upload(data))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-def handle_upload(data):
-    download_url = data["download_url"]
-    file_name = data["file_name"]
-    file_size = data["file_size"]
-    token = data["frameio_token"]
-    account_id = data["account_id"]
-    folder_id = data["folder_id"]
 
-    # Step 1: Download the file
-    local_path = f"/tmp/{file_name}"
-    with requests.get(download_url, stream=True) as r:
+def handle_local_upload(data):
+    # Step 1: Download file
+    local_path = f"/tmp/{data['file_name']}"
+    with requests.get(data["download_url"], stream=True) as r:
         r.raise_for_status()
         with open(local_path, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-    # Step 2: Initialize upload with Frame.io
+    # Step 2: Init local upload
+    init_url = f"https://api.frame.io/v4/accounts/{data['account_id']}/folders/{data['folder_id']}/files/local_upload"
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {data['frameio_token']}",
         "Content-Type": "application/json"
     }
     payload = {
-        "file_name": file_name,
-        "file_size": file_size
+        "data": {
+            "name": data["file_name"],
+            "file_size": data["file_size"]
+        }
     }
-    init_url = f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/local_upload"
+
     init_response = requests.post(init_url, json=payload, headers=headers)
     init_response.raise_for_status()
-    upload_info = init_response.json()
+    upload_info = init_response.json()["data"]
     upload_urls = upload_info["upload_urls"]
-    asset_id = upload_info["asset_id"]
 
-    # Step 3: Upload in chunks
+    # Step 3: Upload chunks
     with open(local_path, 'rb') as f:
-        for i, url in enumerate(upload_urls):
-            chunk_data = f.read(5 * 1024 * 1024)
-            if not chunk_data:
-                break
-            res = requests.put(url, data=chunk_data)
+        for i, part in enumerate(upload_urls):
+            res = requests.put(part["url"], data=f.read(part["size"]))
             res.raise_for_status()
             print(f"✅ Uploaded chunk {i+1}/{len(upload_urls)}")
 
     return {
-        "status": "✅ Upload complete",
-        "asset_id": asset_id,
-        "view_url": upload_info.get("view_url", None)
+        "status": "✅ Local upload complete",
+        "asset_id": upload_info["id"],
+        "view_url": upload_info["view_url"]
+    }
+
+
+def handle_remote_upload(data):
+    url = f"https://api.frame.io/v4/accounts/{data['account_id']}/folders/{data['folder_id']}/files/remote_upload"
+    headers = {
+        "Authorization": f"Bearer {data['frameio_token']}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "data": {
+            "name": data["file_name"],
+            "source_url": data["download_url"]  # reuse same key
+        }
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()
+    result = response.json()["data"]
+
+    return {
+        "status": "✅ Remote upload initiated",
+        "asset_id": result["id"],
+        "view_url": result.get("view_url")
     }
 
 if __name__ == "__main__":
