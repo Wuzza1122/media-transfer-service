@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
+import os
 
 app = Flask(__name__)
 
@@ -19,7 +20,6 @@ def upload_handler():
         return jsonify({"error": "❌ Missing required fields"}), 400
 
     try:
-        # Extract values
         download_url = data["download_url"]
         file_name = data["file_name"]
         file_size = int(data["file_size"])
@@ -28,63 +28,58 @@ def upload_handler():
         folder_id = data["folder_id"]
 
         # Step 1: Init upload with Frame.io
-        init_headers = {
+        headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
-        init_payload = {
+        payload = {
             "data": {
                 "file_size": file_size,
                 "name": file_name
             }
         }
 
-        init_url = f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/local_upload"
-        init_res = requests.post(init_url, json=init_payload, headers=init_headers)
-        init_res.raise_for_status()
-        upload_info = init_res.json()
-
-        # Debug
-        print("📦 Frame.io response:", upload_info)
-
-        upload_data = upload_info.get("data", {})
+        res = requests.post(
+            f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/local_upload",
+            json=payload, headers=headers
+        )
+        res.raise_for_status()
+        upload_data = res.json().get("data", {})
         upload_urls = upload_data.get("upload_urls")
+        asset_id = upload_data.get("id")
+        view_url = upload_data.get("view_url")
 
         if not upload_urls:
-            return jsonify({
-                "error": "❌ Frame.io did not return upload URLs",
-                "frameio_response": upload_info
-            }), 500
+            return jsonify({"error": "❌ No upload URLs returned", "frameio_response": res.json()}), 500
 
-        # Step 2: Download and upload in chunks
-        res = requests.get(download_url, stream=True)
-        chunk_index = 0
+        # Step 2: Download file to /tmp first
+        local_path = f"/tmp/{file_name}"
+        with requests.get(download_url, stream=True) as r:
+            r.raise_for_status()
+            with open(local_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
-        for part in upload_urls:
-            chunk_url = part["url"]
-            chunk_size = part["size"]
+        # Step 3: Upload in chunks from file
+        with open(local_path, 'rb') as f:
+            for i, part in enumerate(upload_urls):
+                chunk_url = part["url"]
+                chunk_size = part["size"]
+                chunk_data = f.read(chunk_size)
+                if not chunk_data:
+                    break
 
-            chunk_data = res.raw.read(chunk_size)
-            if not chunk_data:
-                print(f"⚠️ No chunk data read at index {chunk_index}")
-                break
+                put_headers = {"Content-Type": "application/octet-stream"}
+                put_res = requests.put(chunk_url, data=chunk_data, headers=put_headers)
+                put_res.raise_for_status()
+                print(f"✅ Uploaded chunk {i + 1}")
 
-            if len(chunk_data) != chunk_size:
-                print(f"⚠️ Chunk size mismatch at index {chunk_index}: expected {chunk_size}, got {len(chunk_data)}")
-
-            put_headers = {
-                "Content-Type": "application/octet-stream"
-            }
-
-            put_res = requests.put(chunk_url, data=chunk_data, headers=put_headers)
-            put_res.raise_for_status()
-            print(f"✅ Uploaded chunk {chunk_index + 1}")
-            chunk_index += 1
+        os.remove(local_path)  # Clean up
 
         return jsonify({
             "message": "✅ File uploaded successfully",
-            "frameio_asset_id": upload_data.get("id"),
-            "view_url": upload_data.get("view_url")
+            "frameio_asset_id": asset_id,
+            "view_url": view_url
         }), 200
 
     except Exception as e:
