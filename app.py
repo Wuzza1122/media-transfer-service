@@ -2,14 +2,16 @@ from flask import Flask, request, jsonify
 import requests
 import os
 
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
 app = Flask(__name__)
 
-# 🔁 FRAME.IO UPLOAD (placeholder - replace with your working logic)
+# 🔁 FRAME.IO UPLOAD (placeholder)
 @app.route("/upload_to_frameio", methods=["POST"])
 def upload_to_frameio():
     data = request.json
-
-    # Simple echo test
     return jsonify({
         "message": "✅ Frame.io upload endpoint is active",
         "file_name": data.get("file_name", "Unknown")
@@ -18,13 +20,14 @@ def upload_to_frameio():
 # 📤 YOUTUBE UPLOAD
 @app.route("/upload_to_youtube", methods=["POST"])
 def upload_to_youtube():
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
+    import traceback
 
-    data = request.json
+    data = request.get_json(force=True)
 
-    required_fields = ["download_url", "file_name", "file_size", "access_token", "refresh_token", "client_id", "client_secret"]
+    required_fields = [
+        "download_url", "file_name", "file_size",
+        "access_token", "refresh_token", "client_id", "client_secret"
+    ]
     if not all(field in data for field in required_fields):
         return jsonify({"error": "❌ Missing required fields"}), 400
 
@@ -32,17 +35,19 @@ def upload_to_youtube():
     file_name = data["file_name"]
     file_path = f"/tmp/{file_name}"
 
-    # ⬇️ Download file from Backblaze
+    # ⬇️ Step 1: Download from Backblaze
     try:
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
             with open(file_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
+        print(f"✅ Downloaded {file_name} to {file_path}")
     except Exception as e:
+        print("❌ Download error:", traceback.format_exc())
         return jsonify({"error": f"❌ Download failed: {str(e)}"}), 500
 
-    # 🚀 Upload to YouTube
+    # 🚀 Step 2: Upload to YouTube
     try:
         creds = Credentials(
             token=data["access_token"],
@@ -76,20 +81,25 @@ def upload_to_youtube():
         while response is None:
             status, response = request_upload.next_chunk()
             if status:
-                print(f"Uploaded {int(status.progress() * 100)}%")
+                print(f"📤 Uploaded {int(status.progress() * 100)}%")
 
-        # Optional: clean up local file
+        # 🧹 Clean up local file
         os.remove(file_path)
 
+        # ✅ Build response
+        video_id = response.get("id")
         return jsonify({
             "message": "✅ Upload to YouTube successful",
-            "videoId": response["id"]
-        })
+            "videoId": video_id,
+            "file_name": file_name,
+            "youtube_url": f"https://youtube.com/watch?v={video_id}" if video_id else None
+        }), 200
 
     except Exception as e:
+        print("❌ YouTube upload error:", traceback.format_exc())
         return jsonify({"error": f"❌ YouTube upload failed: {str(e)}"}), 500
 
-# 🏁 Health check (optional)
+# 🏁 Health check
 @app.route("/", methods=["GET"])
 def index():
     return "✅ Media Transfer Service is running!"
