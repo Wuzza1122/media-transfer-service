@@ -25,3 +25,7 @@ def upload():
         "job_id": job.get_id(),
         "file_name": data.get("file_name")
     }), 202
+
+# ✅ Needed to run the Flask app on Render
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
