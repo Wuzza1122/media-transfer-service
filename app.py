@@ -1,48 +1,65 @@
-from flask import Flask, request, jsonify
-import requests
+@app.route("/upload_to_youtube", methods=["POST"])
+def upload_to_youtube():
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
 
-app = Flask(__name__)
-
-@app.route("/upload", methods=["POST"])
-def upload_route():
     data = request.json
-    required = ["download_url", "file_name", "frameio_token", "account_id", "folder_id"]
 
-    if not all(field in data for field in required):
+    required_fields = ["download_url", "file_name", "file_size", "access_token", "refresh_token", "client_id", "client_secret"]
+    if not all(field in data for field in required_fields):
         return jsonify({"error": "❌ Missing required fields"}), 400
 
+    download_url = data["download_url"]
+    file_name = data["file_name"]
+    file_path = f"/tmp/{file_name}"
+
+    # Download from Backblaze
     try:
-        return jsonify(handle_remote_upload(data))
+        with requests.get(download_url, stream=True) as r:
+            r.raise_for_status()
+            with open(file_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"❌ Download failed: {str(e)}"}), 500
 
+    # Upload to YouTube
+    try:
+        creds = Credentials(
+            token=data["access_token"],
+            refresh_token=data["refresh_token"],
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=data["client_id"],
+            client_secret=data["client_secret"]
+        )
 
-def handle_remote_upload(data):
-    # Step 1: Remote upload to Frame.io
-    url = f"https://api.frame.io/v4/accounts/{data['account_id']}/folders/{data['folder_id']}/files/remote_upload"
-    headers = {
-        "Authorization": f"Bearer {data['frameio_token']}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "data": {
-            "name": data["file_name"],
-            "source_url": data["download_url"]
+        youtube = build("youtube", "v3", credentials=creds)
+
+        media = MediaFileUpload(file_path, chunksize=-1, resumable=True, mimetype="video/*")
+        request_body = {
+            "snippet": {
+                "title": file_name,
+                "description": "Uploaded via Render",
+                "categoryId": "22"
+            },
+            "status": {
+                "privacyStatus": "unlisted"
+            }
         }
-    }
 
-    print(f"🚀 Initiating remote upload for {data['file_name']}...")
-    response = requests.post(url, json=payload, headers=headers)
-    response.raise_for_status()
-    result = response.json()["data"]
+        request_upload = youtube.videos().insert(
+            part="snippet,status",
+            body=request_body,
+            media_body=media
+        )
 
-    print("✅ Remote upload request accepted by Frame.io")
-    return {
-        "status": "✅ Remote upload initiated",
-        "asset_id": result["id"],
-        "view_url": result.get("view_url")
-    }
+        response = None
+        while response is None:
+            status, response = request_upload.next_chunk()
+            print(f"Uploaded {int(status.progress() * 100)}%") if status else None
 
+        return jsonify({"message": "✅ Upload to YouTube successful", "videoId": response["id"]})
 
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+    except Exception as e:
+        return jsonify({"error": f"❌ YouTube upload failed: {str(e)}"}), 500
