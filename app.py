@@ -6,7 +6,7 @@ from worker import upload_to_youtube
 
 app = Flask(__name__)
 
-# Setup Redis connection (Render will inject REDIS_URL as env variable)
+# Setup Redis connection
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 conn = Redis.from_url(redis_url)
 q = Queue(connection=conn)
@@ -16,10 +16,10 @@ def upload():
     data = request.get_json()
     print("🎯 Enqueuing YouTube upload job:", data)
 
-    # Enqueue job to background worker
+    # ✅ Enqueue the job (asynchronously)
     job = q.enqueue(upload_to_youtube, data)
-    
-    # Return immediately to avoid timeout
+
+    # ✅ Return immediately (don't wait for upload)
     return jsonify({
         "status": "🎯 Job enqueued for YouTube upload",
         "job_id": job.get_id(),
