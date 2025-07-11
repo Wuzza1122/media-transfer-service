@@ -1,17 +1,17 @@
 import os
 import requests
 import tempfile
-import time
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
+from rq import Worker, Queue, Connection
+import redis
 
-
+# ✅ Upload function
 def upload_to_youtube(data):
     try:
         print("📥 Received job data:", data)
 
-        # Step 1: Download file locally
         download_url = data["download_url"]
         file_name = data["file_name"]
         file_size = data["file_size"]
@@ -28,7 +28,6 @@ def upload_to_youtube(data):
 
         print(f"✅ File downloaded to {local_path}")
 
-        # Step 2: Upload to YouTube using Google API client
         creds = Credentials(
             token=data["access_token"],
             refresh_token=data["refresh_token"],
@@ -48,7 +47,7 @@ def upload_to_youtube(data):
                     "title": file_name,
                     "description": "Uploaded via automated job",
                     "tags": ["automated", "upload"],
-                    "categoryId": "22"  # People & Blogs
+                    "categoryId": "22"
                 },
                 "status": {
                     "privacyStatus": "unlisted"
@@ -77,3 +76,12 @@ def upload_to_youtube(data):
     except Exception as e:
         print("❌ Error uploading video:", str(e))
         return {"error": str(e)}
+
+# ✅ Redis setup and worker start
+if __name__ == "__main__":
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    conn = redis.from_url(redis_url)
+
+    with Connection(conn):
+        worker = Worker(["default"])
+        worker.work(with_scheduler=True)
