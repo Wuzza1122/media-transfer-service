@@ -1,5 +1,9 @@
-Flask
-redis
-rq
-requests
-gunicorn
+Flask==2.3.3
+gunicorn==21.2.0
+redis==5.0.4
+rq==1.15.1
+requests==2.32.3
+google-api-python-client==2.126.0
+google-auth==2.29.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
