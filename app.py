@@ -1,48 +1,43 @@
 from flask import Flask, request, jsonify
-import requests
+from redis import Redis
+from rq import Queue
+from worker import upload_to_youtube
+
+import os
 
 app = Flask(__name__)
 
-@app.route("/upload", methods=["POST"])
-def upload_route():
-    data = request.json
-    required = ["download_url", "file_name", "frameio_token", "account_id", "folder_id"]
+# Redis connection
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+redis_conn = Redis.from_url(redis_url)
+q = Queue(connection=redis_conn)
 
-    if not all(field in data for field in required):
+@app.route("/upload_to_youtube", methods=["POST"])
+def enqueue_youtube_upload():
+    data = request.json
+
+    required_keys = [
+        "download_url", "file_name", "file_size",
+        "access_token", "refresh_token", "client_id", "client_secret"
+    ]
+    if not all(key in data for key in required_keys):
         return jsonify({"error": "❌ Missing required fields"}), 400
 
-    try:
-        return jsonify(handle_remote_upload(data))
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    job = q.enqueue(upload_to_youtube, data)
+    return jsonify({
+        "message": "⏳ Upload job queued",
+        "job_id": job.get_id()
+    }), 200
 
-
-def handle_remote_upload(data):
-    # Step 1: Remote upload to Frame.io
-    url = f"https://api.frame.io/v4/accounts/{data['account_id']}/folders/{data['folder_id']}/files/remote_upload"
-    headers = {
-        "Authorization": f"Bearer {data['frameio_token']}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "data": {
-            "name": data["file_name"],
-            "source_url": data["download_url"]
-        }
-    }
-
-    print(f"🚀 Initiating remote upload for {data['file_name']}...")
-    response = requests.post(url, json=payload, headers=headers)
-    response.raise_for_status()
-    result = response.json()["data"]
-
-    print("✅ Remote upload request accepted by Frame.io")
-    return {
-        "status": "✅ Remote upload initiated",
-        "asset_id": result["id"],
-        "view_url": result.get("view_url")
-    }
-
+@app.route("/status/<job_id>", methods=["GET"])
+def check_status(job_id):
+    job = q.fetch_job(job_id)
+    if job is None:
+        return jsonify({"error": "❌ Job not found"}), 404
+    return jsonify({
+        "status": job.get_status(),
+        "result": job.result
+    })
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+    app.run(debug=True)
