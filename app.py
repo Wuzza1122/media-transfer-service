@@ -2,22 +2,37 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-@app.route("/upload_to_frameio", methods=["POST"])
-def upload_to_frameio():
+@app.route("/", methods=["GET"])
+def index():
+    return "✅ YouTube Upload Service is running!"
+
+@app.route("/upload_to_youtube", methods=["POST"])
+def upload_to_youtube():
     try:
-        data = request.json
+        data = request.get_json()
 
-        required_fields = ["download_url", "file_name", "file_size"]
-        if not all(field in data for field in required_fields):
-            return jsonify({"error": "❌ Missing required fields"}), 400
+        # ✅ Required fields
+        required_fields = [
+            "download_url",
+            "file_name",
+            "file_size",
+            "access_token",
+            "refresh_token",
+            "client_id",
+            "client_secret"
+        ]
 
-        # Placeholder logic (replace with actual Frame.io upload later)
-        print("Received file:", data["file_name"])
-        return jsonify({"message": "✅ Frame.io upload route hit!", "file": data["file_name"]})
+        # ❌ Check for missing fields
+        missing = [field for field in required_fields if field not in data]
+        if missing:
+            return jsonify({"error": f"❌ Missing fields: {', '.join(missing)}"}), 400
+
+        # ✅ Confirm input accepted (YouTube upload logic will go here)
+        return jsonify({
+            "message": "✅ Ready to upload to YouTube",
+            "file_name": data["file_name"],
+            "file_size": data["file_size"]
+        })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "OK"})
