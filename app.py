@@ -1,3 +1,21 @@
+from flask import Flask, request, jsonify
+import requests
+import os
+
+app = Flask(__name__)
+
+# 🔁 FRAME.IO UPLOAD (placeholder - replace with your working logic)
+@app.route("/upload_to_frameio", methods=["POST"])
+def upload_to_frameio():
+    data = request.json
+
+    # Simple echo test
+    return jsonify({
+        "message": "✅ Frame.io upload endpoint is active",
+        "file_name": data.get("file_name", "Unknown")
+    })
+
+# 📤 YOUTUBE UPLOAD
 @app.route("/upload_to_youtube", methods=["POST"])
 def upload_to_youtube():
     from google.oauth2.credentials import Credentials
@@ -14,7 +32,7 @@ def upload_to_youtube():
     file_name = data["file_name"]
     file_path = f"/tmp/{file_name}"
 
-    # Download from Backblaze
+    # ⬇️ Download file from Backblaze
     try:
         with requests.get(download_url, stream=True) as r:
             r.raise_for_status()
@@ -24,7 +42,7 @@ def upload_to_youtube():
     except Exception as e:
         return jsonify({"error": f"❌ Download failed: {str(e)}"}), 500
 
-    # Upload to YouTube
+    # 🚀 Upload to YouTube
     try:
         creds = Credentials(
             token=data["access_token"],
@@ -57,9 +75,21 @@ def upload_to_youtube():
         response = None
         while response is None:
             status, response = request_upload.next_chunk()
-            print(f"Uploaded {int(status.progress() * 100)}%") if status else None
+            if status:
+                print(f"Uploaded {int(status.progress() * 100)}%")
 
-        return jsonify({"message": "✅ Upload to YouTube successful", "videoId": response["id"]})
+        # Optional: clean up local file
+        os.remove(file_path)
+
+        return jsonify({
+            "message": "✅ Upload to YouTube successful",
+            "videoId": response["id"]
+        })
 
     except Exception as e:
         return jsonify({"error": f"❌ YouTube upload failed: {str(e)}"}), 500
+
+# 🏁 Health check (optional)
+@app.route("/", methods=["GET"])
+def index():
+    return "✅ Media Transfer Service is running!"
