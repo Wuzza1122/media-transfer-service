@@ -1,16 +1,15 @@
-import os
 from redis import Redis
-from rq import Worker, Queue, Connection
-
-# ✅ Import your job function(s) here
+from rq import Queue
 from youtube_upload import upload_to_youtube
 
-listen = ['default']
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
-conn = Redis.from_url(redis_url)
+import os
 
-if __name__ == '__main__':
-    with Connection(conn):
-        print("🎧 Worker connected and listening for jobs...")
-        worker = Worker(list(map(Queue, listen)))
-        worker.work()
+redis_url = os.getenv("REDIS_URL")
+redis_conn = Redis.from_url(redis_url)
+queue = Queue(connection=redis_conn)
+
+if __name__ == "__main__":
+    # Start worker
+    print("👷 Worker starting...")
+    from rq import Worker
+    Worker([queue], connection=redis_conn).work()
