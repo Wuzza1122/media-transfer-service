@@ -1,15 +1,19 @@
+# worker.py
 from redis import Redis
-from rq import Queue
-from youtube_upload import upload_to_youtube
-
+from rq import Queue, Worker, Connection
 import os
 
-redis_url = os.getenv("REDIS_URL")
-redis_conn = Redis.from_url(redis_url)
-queue = Queue(connection=redis_conn)
+# 👇 Ensure this import matches your filename and function name
+from youtube_upload import upload_to_youtube
 
-if __name__ == "__main__":
-    # Start worker
+# ✅ Connect to Redis
+redis_url = os.getenv("REDIS_URL")  # Should be rediss://... from Upstash
+conn = Redis.from_url(redis_url)
+
+if __name__ == '__main__':
     print("👷 Worker starting...")
-    from rq import Worker
-    Worker([queue], connection=redis_conn).work()
+
+    # ✅ Just importing `upload_to_youtube` makes it discoverable
+    with Connection(conn):
+        worker = Worker(["default"])
+        worker.work()
