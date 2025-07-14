@@ -6,11 +6,11 @@ import google.auth.transport.requests
 from google.oauth2.credentials import Credentials
 
 # ✅ Setup Redis
-redis_url = os.getenv("REDIS_URL")  # Must be rediss://... from Upstash
+redis_url = os.getenv("REDIS_URL")
 redis_conn = Redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
-# ✅ Worker function — NOT decorated
+# ✅ Worker function — no decorator needed
 def upload_to_youtube(file_name, download_url, file_size, access_token, refresh_token, client_id, client_secret):
     try:
         print(f"⬇️ Downloading file: {file_name}")
@@ -38,7 +38,6 @@ def upload_to_youtube(file_name, download_url, file_size, access_token, refresh_
             "Content-Type": "application/json"
         }
 
-        # Step 1: Initiate upload session
         metadata = {
             "snippet": {
                 "title": file_name,
@@ -59,7 +58,6 @@ def upload_to_youtube(file_name, download_url, file_size, access_token, refresh_
         init_res.raise_for_status()
         upload_url = init_res.headers["Location"]
 
-        # Step 2: Upload file
         with open(local_path, "rb") as f:
             upload_res = requests.put(
                 upload_url,
