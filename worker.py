@@ -1,66 +1,78 @@
-import os
-import requests
 from redis import Redis
 from rq import Queue
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from google.auth.transport.requests import Request
+import os
+import requests
+import google.auth.transport.requests
 from google.oauth2.credentials import Credentials
-import tempfile
 
-redis_url = os.getenv("REDIS_URL")
-redis_token = os.getenv("REDIS_PASSWORD")
-
-redis_conn = Redis.from_url(redis_url, password=redis_token)
+# ✅ Setup Redis
+redis_url = os.getenv("REDIS_URL")  # Must be rediss://... from Upstash
+redis_conn = Redis.from_url(redis_url)
 queue = Queue(connection=redis_conn)
 
-@queue.job
+# ✅ Worker function — NOT decorated
 def upload_to_youtube(file_name, download_url, file_size, access_token, refresh_token, client_id, client_secret):
-    print(f"📥 Downloading {file_name}...")
-    temp_file_path = os.path.join(tempfile.gettempdir(), file_name)
-    
-    with requests.get(download_url, stream=True) as r:
-        r.raise_for_status()
-        with open(temp_file_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+    try:
+        print(f"⬇️ Downloading file: {file_name}")
+        local_path = f"/tmp/{file_name}"
 
-    print("🔐 Setting up YouTube credentials...")
-    creds = Credentials(
-        token=access_token,
-        refresh_token=refresh_token,
-        client_id=client_id,
-        client_secret=client_secret,
-        token_uri="https://oauth2.googleapis.com/token"
-    )
+        with requests.get(download_url, stream=True) as r:
+            r.raise_for_status()
+            with open(local_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        print("🔄 Refreshing YouTube access token...")
+        creds = Credentials(
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        creds.refresh(google.auth.transport.requests.Request())
 
-    print("📡 Connecting to YouTube API...")
-    youtube = build("youtube", "v3", credentials=creds)
+        print("📤 Uploading to YouTube...")
+        headers = {
+            "Authorization": f"Bearer {creds.token}",
+            "Content-Type": "application/json"
+        }
 
-    print("📤 Uploading to YouTube...")
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body={
+        # Step 1: Initiate upload session
+        metadata = {
             "snippet": {
                 "title": file_name,
-                "description": "Uploaded via Render media-transfer-service",
+                "description": "Uploaded via media-transfer-service",
+                "tags": ["auto-upload"],
                 "categoryId": "22"
             },
             "status": {
                 "privacyStatus": "unlisted"
             }
-        },
-        media_body=MediaFileUpload(temp_file_path, chunksize=-1, resumable=True)
-    )
+        }
 
-    response = None
-    while response is None:
-        status, response = request.next_chunk()
-        if status:
-            print(f"🚀 Upload progress: {int(status.progress() * 100)}%")
+        init_res = requests.post(
+            "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+            headers=headers,
+            json=metadata
+        )
+        init_res.raise_for_status()
+        upload_url = init_res.headers["Location"]
 
-    print(f"✅ Upload complete! Video ID: {response['id']}")
-    os.remove(temp_file_path)
+        # Step 2: Upload file
+        with open(local_path, "rb") as f:
+            upload_res = requests.put(
+                upload_url,
+                data=f,
+                headers={
+                    "Authorization": f"Bearer {creds.token}",
+                    "Content-Type": "video/*",
+                    "Content-Length": str(file_size)
+                }
+            )
+            upload_res.raise_for_status()
+
+        print("✅ YouTube upload complete!")
+
+    except Exception as e:
+        print("❌ YouTube upload failed:", str(e))
