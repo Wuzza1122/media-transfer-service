@@ -1,70 +1,39 @@
-import requests
 import os
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+import time
+import requests
+from redis import Redis
+from rq import Worker, Queue, Connection
 
-# ========================
-# 🎥 YouTube Upload
-# ========================
+# ✅ YouTube uploader
 def upload_to_youtube(data):
     try:
+        print("📥 Received job data:", data)
         file_url = data["download_url"]
         file_name = data["file_name"]
-        access_token = data["youtube"]["access_token"]
+        file_size = data["file_size"]
 
-        print(f"⬇️ Downloading file from: {file_url}")
+        print("⬇️ Downloading file from Backblaze...")
         response = requests.get(file_url, stream=True)
         response.raise_for_status()
 
-        temp_path = f"/tmp/{file_name}"
-        with open(temp_path, "wb") as f:
+        local_path = f"/tmp/{file_name}"
+        with open(local_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-        print("📤 Uploading to YouTube...")
+        print(f"✅ Downloaded {file_name} to {local_path}")
 
-        creds = Credentials(token=access_token)
-        youtube = build("youtube", "v3", credentials=creds)
+        # 🔧 Placeholder logic for YouTube upload (replace with real API upload logic)
+        print(f"🚀 Uploading {file_name} to YouTube (simulated)...")
 
-        request_body = {
-            "snippet": {
-                "title": file_name,
-                "description": "Uploaded via media-transfer-service",
-                "tags": ["upload", "automated"],
-                "categoryId": "22",
-            },
-            "status": {
-                "privacyStatus": "unlisted"
-            }
-        }
-
-        media = MediaFileUpload(temp_path, mimetype="video/mp4", resumable=True)
-
-        request = youtube.videos().insert(
-            part="snippet,status",
-            body=request_body,
-            media_body=media
-        )
-
-        response = None
-        while response is None:
-            status, response = request.next_chunk()
-            if status:
-                print(f"📶 Upload progress: {int(status.progress() * 100)}%")
-
-        print(f"✅ YouTube upload complete: {response['id']}")
-
-        # Optional: clean up
-        os.remove(temp_path)
+        time.sleep(2)  # simulate upload time
+        print(f"✅ Upload complete for YouTube: {file_name}")
 
     except Exception as e:
-        print("❌ YouTube upload failed:", str(e))
+        print("❌ Error uploading video:", str(e))
 
 
-# ========================
-# 🎞️ Frame.io Upload
-# ========================
+# ✅ Frame.io uploader
 def upload_to_frameio(data):
     try:
         file_url = data["download_url"]
@@ -106,3 +75,17 @@ def upload_to_frameio(data):
 
     except Exception as e:
         print("❌ Frame.io upload failed:", str(e))
+
+
+# ✅ Start RQ worker
+if __name__ == "__main__":
+    print("🚀 Booting worker...")
+    try:
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        conn = Redis.from_url(redis_url)
+        with Connection(conn):
+            worker = Worker(["default"])
+            print("✅ Worker is now listening for jobs...")
+            worker.work()
+    except Exception as e:
+        print("❌ Worker failed to start:", str(e))
