@@ -1,14 +1,17 @@
 import os
 import requests
 import tempfile
+import traceback
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
-from rq import Worker, Queue, Connection
+from rq import Worker, Queue, Connection, get_current_job
 import redis
 
-# ✅ Upload function
+# ✅ Upload function with retry support
 def upload_to_youtube(data):
+    job = get_current_job()
+
     try:
         print("📥 Received job data:", data)
 
@@ -37,7 +40,6 @@ def upload_to_youtube(data):
         )
 
         youtube = build("youtube", "v3", credentials=creds)
-
         media = MediaFileUpload(local_path, mimetype="video/mp4", resumable=True)
 
         request = youtube.videos().insert(
@@ -75,7 +77,16 @@ def upload_to_youtube(data):
 
     except Exception as e:
         print("❌ Error uploading video:", str(e))
-        return {"error": str(e)}
+        traceback.print_exc()
+
+        # Optional automatic retry logic
+        if job and job.retries_left > 0:
+            print(f"🔁 Retrying upload. Attempts left: {job.retries_left}")
+            raise e
+        else:
+            print("⛔ No retries left or job is undefined.")
+            return {"error": str(e)}
+
 
 # ✅ Redis setup and worker start
 if __name__ == "__main__":
