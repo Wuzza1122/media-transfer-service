@@ -4,7 +4,7 @@ import tempfile
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.oauth2.credentials import Credentials
-from rq import Worker, Queue, Connection
+from rq import Worker, Connection
 import redis
 
 # ✅ Upload to YouTube
@@ -135,7 +135,7 @@ def upload_to_frameio(data):
 
 # ✅ Redis worker setup
 if __name__ == "__main__":
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
     conn = redis.from_url(redis_url)
 
     with Connection(conn):
