@@ -74,7 +74,7 @@ def upload_to_youtube(data):
         print("❌ Error uploading to YouTube:", str(e))
         return {"error": str(e)}
 
-# ✅ Upload to Frame.io (Remote Upload)
+# ✅ Upload to Frame.io using remote_upload
 def upload_to_frameio(data):
     try:
         print("📥 Frame.io job data:", data)
@@ -85,32 +85,30 @@ def upload_to_frameio(data):
         account_id = data["account_id"]
         folder_id = data["folder_id"]
 
-        # Remote upload to Frame.io
+        # 🚀 Submit remote upload request to Frame.io
         print("🚀 Initiating remote upload to Frame.io...")
-        upload_url = f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/remote_upload"
-
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "data": {
-                "name": file_name,
-                "source_url": download_url
+        response = requests.post(
+            f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/remote_upload",
+            headers={"Authorization": f"Bearer {access_token}"},
+            json={
+                "data": {
+                    "name": file_name,
+                    "source_url": download_url
+                }
             }
-        }
-
-        response = requests.post(upload_url, headers=headers, json=payload)
+        )
         response.raise_for_status()
         result = response.json()
 
-        print(f"✅ Frame.io upload request accepted. Asset ID: {result.get('id')}")
+        asset_id = result["data"]["id"]
+        view_url = result["data"]["attributes"].get("view_url")
+
+        print(f"✅ Frame.io upload request accepted. Asset ID: {asset_id}")
 
         return {
             "file_name": file_name,
-            "frameio_asset_id": result.get("id"),
-            "frameio_view_url": result.get("view_url"),
+            "frameio_asset_id": asset_id,
+            "frameio_view_url": view_url,
             "message": "✅ Video queued for upload to Frame.io"
         }
 
