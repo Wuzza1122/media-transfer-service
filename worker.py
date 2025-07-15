@@ -101,7 +101,7 @@ def upload_to_frameio(data):
         # Init Frame.io upload
         print("🚀 Initiating upload to Frame.io...")
         init_upload = requests.post(
-            f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/local_upload",
+            f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/remote_upload",
             headers={"Authorization": f"Bearer {access_token}"},
             json={"file_name": file_name, "file_size": os.path.getsize(local_path)}
         )
