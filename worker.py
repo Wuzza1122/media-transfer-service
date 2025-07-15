@@ -74,7 +74,7 @@ def upload_to_youtube(data):
         print("❌ Error uploading to YouTube:", str(e))
         return {"error": str(e)}
 
-# ✅ Upload to Frame.io
+# ✅ Upload to Frame.io (Remote Upload)
 def upload_to_frameio(data):
     try:
         print("📥 Frame.io job data:", data)
@@ -85,48 +85,33 @@ def upload_to_frameio(data):
         account_id = data["account_id"]
         folder_id = data["folder_id"]
 
-        # Download file
-        tmp_dir = tempfile.mkdtemp()
-        local_path = os.path.join(tmp_dir, file_name)
+        # Remote upload to Frame.io
+        print("🚀 Initiating remote upload to Frame.io...")
+        upload_url = f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/remote_upload"
 
-        print("⬇️ Downloading file from Backblaze...")
-        with requests.get(download_url, stream=True) as r:
-            r.raise_for_status()
-            with open(local_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
 
-        print(f"✅ File downloaded to {local_path}")
+        payload = {
+            "data": {
+                "name": file_name,
+                "source_url": download_url
+            }
+        }
 
-        # Init Frame.io upload
-        print("🚀 Initiating upload to Frame.io...")
-        init_upload = requests.post(
-            f"https://api.frame.io/v4/accounts/{account_id}/folders/{folder_id}/files/remote_upload",
-            headers={"Authorization": f"Bearer {access_token}"},
-            json={"file_name": file_name, "file_size": os.path.getsize(local_path)}
-        )
-        init_upload.raise_for_status()
-        upload_info = init_upload.json()
-        upload_urls = upload_info["upload_urls"]
-        asset_id = upload_info["id"]
+        response = requests.post(upload_url, headers=headers, json=payload)
+        response.raise_for_status()
+        result = response.json()
 
-        print(f"📤 Uploading {len(upload_urls)} parts to Frame.io...")
-
-        with open(local_path, "rb") as f:
-            for idx, url in enumerate(upload_urls):
-                chunk = f.read(5 * 1024 * 1024)
-                res = requests.put(url, data=chunk)
-                res.raise_for_status()
-                print(f"✅ Uploaded chunk {idx + 1}/{len(upload_urls)}")
-
-        view_url = f"https://app.frame.io/review/{asset_id}"
-        print(f"✅ Upload complete. View: {view_url}")
+        print(f"✅ Frame.io upload request accepted. Asset ID: {result.get('id')}")
 
         return {
             "file_name": file_name,
-            "frameio_asset_id": asset_id,
-            "frameio_view_url": view_url,
-            "message": "✅ Video uploaded to Frame.io"
+            "frameio_asset_id": result.get("id"),
+            "frameio_view_url": result.get("view_url"),
+            "message": "✅ Video queued for upload to Frame.io"
         }
 
     except Exception as e:
