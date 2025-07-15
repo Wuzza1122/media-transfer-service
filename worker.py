@@ -1,25 +1,21 @@
-import os
 import requests
 import tempfile
-import traceback
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from google.oauth2.credentials import Credentials
-from rq import Worker, Queue, Connection, get_current_job
-import redis
+import os
 
-# ✅ Upload function with retry support
-def upload_to_youtube(data):
-    job = get_current_job()
-
+def upload_to_frameio(data):
     try:
-        print("📥 Received job data:", data)
+        print("📥 Received Frame.io job data:", data)
 
+        # Required fields
         download_url = data["download_url"]
         file_name = data["file_name"]
         file_size = data["file_size"]
+        frameio_token = data["frameio_token"]
+        account_id = data["account_id"]
+        folder_id = data["folder_id"]
 
-        print("⬇️ Downloading file from Backblaze...")
+        # Step 1: Download file
+        print("⬇️ Downloading file...")
         tmp_dir = tempfile.mkdtemp()
         local_path = os.path.join(tmp_dir, file_name)
 
@@ -28,71 +24,49 @@ def upload_to_youtube(data):
             with open(local_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
-
         print(f"✅ File downloaded to {local_path}")
 
-        creds = Credentials(
-            token=data["access_token"],
-            refresh_token=data["refresh_token"],
-            client_id=data["client_id"],
-            client_secret=data["client_secret"],
-            token_uri="https://oauth2.googleapis.com/token"
+        # Step 2: Initialize upload
+        print("🚀 Initializing Frame.io upload...")
+        init_res = requests.post(
+            f"https://api.frame.io/v4/assets/upload",
+            headers={"Authorization": f"Bearer {frameio_token}"},
+            json={
+                "name": file_name,
+                "type": "file",
+                "parent_id": folder_id,
+                "filesize": file_size
+            }
         )
+        init_res.raise_for_status()
+        upload_info = init_res.json()
 
-        youtube = build("youtube", "v3", credentials=creds)
-        media = MediaFileUpload(local_path, mimetype="video/mp4", resumable=True)
+        upload_urls = upload_info.get("upload_urls")
+        asset_id = upload_info.get("id")
 
-        request = youtube.videos().insert(
-            part="snippet,status",
-            body={
-                "snippet": {
-                    "title": file_name,
-                    "description": "Uploaded via automated job",
-                    "tags": ["automated", "upload"],
-                    "categoryId": "22"
-                },
-                "status": {
-                    "privacyStatus": "unlisted"
-                }
-            },
-            media_body=media
-        )
+        # Step 3: Upload file in chunks
+        print("📤 Uploading to Frame.io...")
+        chunk_size = 5 * 1024 * 1024  # 5MB
+        with open(local_path, "rb") as f:
+            for i, url in enumerate(upload_urls):
+                chunk_data = f.read(chunk_size)
+                if not chunk_data:
+                    break
+                res = requests.put(url, data=chunk_data)
+                res.raise_for_status()
+                print(f"✅ Uploaded chunk {i + 1}/{len(upload_urls)}")
 
-        print("🚀 Initiating YouTube upload...")
-        response = None
-        while response is None:
-            status, response = request.next_chunk()
-            if status:
-                print(f"📤 Upload progress: {int(status.progress() * 100)}%")
+        # Step 4: Finalize upload (optional, Frame.io may auto-complete)
+        view_url = f"https://frame.io/player/{asset_id}"
+        print(f"✅ Upload complete: {view_url}")
 
-        print("✅ Upload complete:", response)
-
-        youtube_url = f"https://www.youtube.com/watch?v={response['id']}"
         return {
             "file_name": file_name,
-            "youtube_video_id": response["id"],
-            "youtube_url": youtube_url,
-            "message": "✅ Video uploaded to YouTube"
+            "frameio_asset_id": asset_id,
+            "frameio_view_url": view_url,
+            "message": "✅ Uploaded to Frame.io"
         }
 
     except Exception as e:
-        print("❌ Error uploading video:", str(e))
-        traceback.print_exc()
-
-        # Optional automatic retry logic
-        if job and job.retries_left > 0:
-            print(f"🔁 Retrying upload. Attempts left: {job.retries_left}")
-            raise e
-        else:
-            print("⛔ No retries left or job is undefined.")
-            return {"error": str(e)}
-
-
-# ✅ Redis setup and worker start
-if __name__ == "__main__":
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
-    conn = redis.from_url(redis_url)
-
-    with Connection(conn):
-        worker = Worker(["default"])
-        worker.work(with_scheduler=True)
+        print("❌ Frame.io upload failed:", str(e))
+        return {"error": str(e)}
