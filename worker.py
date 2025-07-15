@@ -1,5 +1,3 @@
-# worker.py
-
 import os
 import requests
 import tempfile
@@ -84,6 +82,7 @@ if __name__ == "__main__":
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     conn = redis.from_url(redis_url)
 
+    print("👷 Worker is starting and connected to Redis...")
     with Connection(conn):
         worker = Worker(["default"])
         worker.work(with_scheduler=True)
