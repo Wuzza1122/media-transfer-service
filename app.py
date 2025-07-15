@@ -1,10 +1,14 @@
 from flask import Flask, request, jsonify
 from redis import Redis
 from rq import Queue
+import os
 from worker import upload_to_youtube, upload_to_frameio
 
 app = Flask(__name__)
-redis_conn = Redis.from_url("redis://localhost:6379")
+
+# ✅ Use REDIS_URL from Render environment
+redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
+redis_conn = Redis.from_url(redis_url)
 q = Queue(connection=redis_conn)
 
 @app.route("/")
