@@ -1,43 +1,40 @@
 from flask import Flask, request, jsonify
-from worker import queue
-from youtube_upload import upload_to_youtube
+from redis import Redis
+from rq import Queue
+import os
+from worker import upload_to_youtube
 
 app = Flask(__name__)
 
-@app.route("/upload", methods=["POST"])
+# ✅ Setup Redis connection
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+conn = Redis.from_url(redis_url)
+q = Queue(connection=conn)
+
+# ✅ POST route to enqueue upload job
+@app.route("/upload_to_youtube", methods=["POST"])
 def upload():
-    print("📥 Incoming upload request")
+    try:
+        data = request.get_json()
+        print("🎯 Enqueuing YouTube upload job:", data)
 
-    data = request.get_json()
-    print("📦 Payload received:", data)
+        # ⏳ Enqueue upload job (do NOT block)
+        job = q.enqueue(upload_to_youtube, data)
 
-    download_url = data.get("download_url")
-    file_name = data.get("file_name")
-    file_size = data.get("file_size")
-    destinations = data.get("destinations", [])
+        return jsonify({
+            "status": "🎯 Job enqueued for YouTube upload",
+            "job_id": job.get_id(),
+            "file_name": data.get("file_name")
+        }), 202  # HTTP 202 = Accepted
 
-    jobs = {}
+    except Exception as e:
+        print("❌ Failed to enqueue job:", str(e))
+        return jsonify({"error": str(e)}), 500
 
-    if "youtube" in destinations and "youtube" in data:
-        print("🎯 YouTube upload requested")
-        youtube_data = data["youtube"]
-        job = queue.enqueue(
-            upload_to_youtube,
-            file_name,
-            download_url,
-            file_size,
-            youtube_data["access_token"],
-            youtube_data["refresh_token"],
-            youtube_data["client_id"],
-            youtube_data["client_secret"]
-        )
-        print("✅ Job enqueued with ID:", job.id)
-        jobs["youtube"] = job.id
-    else:
-        print("⚠️ No valid destinations or missing YouTube data")
+# ✅ Health check (optional for Render)
+@app.route("/", methods=["GET"])
+def health():
+    return jsonify({"status": "✅ Media transfer service is live!"}), 200
 
-    return jsonify({
-        "file_name": file_name,
-        "jobs": jobs,
-        "status": "🎯 Jobs enqueued"
-    })
+if __name__ == "__main__":
+    app.run(debug=True)
