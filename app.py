@@ -1,5 +1,3 @@
-# app.py
-
 from flask import Flask, request, jsonify
 from redis import Redis
 from rq import Queue
